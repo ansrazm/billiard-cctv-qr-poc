@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>POC: QR Akses Meja Billiard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+:root{
+  --bg:#f4f5f7; --card:#ffffff; --text:#1a1d23; --muted:#6b7280;
+  --accent:#1e7a4c; --accent-dark:#155c39; --danger:#c0392b; --border:#e3e5e9;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#14161a; --card:#1e2126; --text:#f1f2f4; --muted:#9aa0aa;
+    --accent:#3ecf8e; --accent-dark:#2fa876; --danger:#ff6b5e; --border:#2c2f36;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#14161a; --card:#1e2126; --text:#f1f2f4; --muted:#9aa0aa;
+  --accent:#3ecf8e; --accent-dark:#2fa876; --danger:#ff6b5e; --border:#2c2f36;
+}
+*{box-sizing:border-box;}
+html{scroll-padding-top:env(safe-area-inset-top,0px);}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  min-height:100vh; display:flex; justify-content:center; align-items:flex-start;
+}
+.wrap{width:100%; max-width:420px; padding:24px 16px 40px;}
+.card{
+  background:var(--card); border:1px solid var(--border); border-radius:16px;
+  padding:20px; margin-bottom:16px;
+}
+h1{font-size:1.15rem; margin:0 0 4px;}
+p.sub{color:var(--muted); font-size:0.85rem; margin:0 0 16px;}
+label{display:block; font-size:0.85rem; color:var(--muted); margin:12px 0 6px;}
+select, input{
+  width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--border);
+  background:var(--bg); color:var(--text); font-size:1rem;
+}
+button{
+  width:100%; padding:12px; margin-top:16px; border:none; border-radius:10px;
+  background:var(--accent); color:#062217; font-weight:600; font-size:1rem; cursor:pointer;
+}
+button:active{background:var(--accent-dark);}
+#qrbox{display:flex; justify-content:center; margin:16px 0;}
+.link{font-size:0.75rem; word-break:break-all; color:var(--muted); background:var(--bg);
+  padding:8px; border-radius:8px; border:1px solid var(--border);}
+.timer{font-size:2.2rem; font-weight:700; text-align:center; margin:8px 0;}
+video{width:100%; border-radius:12px; background:#000; display:block; max-width:100%;}
+.status{text-align:center; padding:20px 8px; color:var(--muted);}
+.status.error{color:var(--danger);}
+.badge{display:inline-block; font-size:0.75rem; background:var(--accent); color:#062217;
+  padding:2px 10px; border-radius:999px; font-weight:600;}
+.note{font-size:0.75rem; color:var(--muted); line-height:1.4; margin-top:16px;}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<script>
+const app = document.getElementById('app');
+
+function encodeToken(table, expiry){
+  return encodeURIComponent(btoa(JSON.stringify({t: table, e: expiry})));
+}
+function decodeToken(token){
+  return JSON.parse(atob(decodeURIComponent(token)));
+}
+function fmt(ms){
+  const s = Math.max(0, Math.floor(ms/1000));
+  const m = String(Math.floor(s/60)).padStart(2,'0');
+  const r = String(s%60).padStart(2,'0');
+  return m+':'+r;
+}
+
+const params = new URLSearchParams(location.search);
+const token = params.get('token');
+
+if(!token){
+  // ADMIN VIEW
+  app.innerHTML = `
+    <div class="card">
+      <h1>Dashboard Admin (Kasir)</h1>
+      <p class="sub">Pilih meja &amp; durasi main, lalu generate QR untuk pelanggan.</p>
+      <label>Nomor Meja</label>
+      <select id="table">
+        <option>Meja 1</option><option>Meja 2</option><option>Meja 3</option><option>Meja 4</option>
+      </select>
+      <label>Durasi Main (menit)</label>
+      <input id="duration" type="number" value="1" min="1" max="240">
+      <button id="gen">Generate QR Code</button>
+    </div>
+    <div class="card" id="result" style="display:none">
+      <p class="badge" id="tableLabel"></p>
+      <div id="qrbox"></div>
+      <div class="link" id="linkText"></div>
+      <button id="openLink" style="background:transparent;border:1px solid var(--border);color:var(--text)">Buka sebagai Pelanggan (test di HP ini)</button>
+    </div>
+    <p class="note">Proof of concept: logika QR + token + batas waktu akses. Video di sini memakai kamera perangkat sebagai simulasi feed CCTV — di produksi, sumbernya adalah kamera RTSP (Hikvision/TP-Link Vigi) via media server seperti MediaMTX yang di-convert ke WebRTC/HLS.</p>
+  `;
+  document.getElementById('gen').onclick = () => {
+    const table = document.getElementById('table').value;
+    const mins = parseFloat(document.getElementById('duration').value) || 1;
+    const expiry = Date.now() + mins*60*1000;
+    const tok = encodeToken(table, expiry);
+    const url = location.origin + location.pathname + '?token=' + tok;
+    document.getElementById('result').style.display = 'block';
+    document.getElementById('tableLabel').textContent = table + ' · ' + mins + ' menit';
+    document.getElementById('linkText').textContent = url;
+    document.getElementById('qrbox').innerHTML = '';
+    new QRCode(document.getElementById('qrbox'), {text: url, width: 200, height: 200, colorDark:"#000000", colorLight:"#ffffff"});
+    document.getElementById('openLink').onclick = () => { location.href = url; };
+  };
+} else {
+  // CUSTOMER VIEW
+  let data;
+  try { data = decodeToken(token); } catch(e){ data = null; }
+
+  if(!data){
+    app.innerHTML = `<div class="card status error">Token tidak valid.</div>`;
+  } else {
+    const remaining0 = data.e - Date.now();
+    if(remaining0 <= 0){
+      app.innerHTML = `<div class="card status error">Sesi untuk ${data.t} sudah berakhir. Token hangus.</div>`;
+    } else {
+      app.innerHTML = `
+        <div class="card">
+          <h1>Live Stream — ${data.t}</h1>
+          <p class="sub">Sisa waktu akses:</p>
+          <div class="timer" id="timer">--:--</div>
+          <video id="vid" autoplay playsinline muted></video>
+          <div id="statusMsg" class="status" style="display:none"></div>
+        </div>
+        <p class="note">Simulasi: video memakai kamera perangkat ini sebagai pengganti feed CCTV RTSP. Saat waktu habis, stream diputus otomatis dan track kamera dimatikan — merepresentasikan token yang expire di sisi server pada implementasi asli.</p>
+      `;
+      const timerEl = document.getElementById('timer');
+      const vid = document.getElementById('vid');
+      const statusMsg = document.getElementById('statusMsg');
+      let stream = null;
+
+      navigator.mediaDevices.getUserMedia({video:true})
+        .then(s => { stream = s; vid.srcObject = s; })
+        .catch(() => {
+          statusMsg.style.display = 'block';
+          statusMsg.textContent = 'Kamera tidak tersedia/izin ditolak — pada implementasi asli ini akan menjadi feed RTSP dari server, bukan kamera perangkat.';
+        });
+
+      const interval = setInterval(() => {
+        const remaining = data.e - Date.now();
+        if(remaining <= 0){
+          clearInterval(interval);
+          timerEl.textContent = '00:00';
+          if(stream){ stream.getTracks().forEach(t => t.stop()); }
+          vid.style.display = 'none';
+          statusMsg.style.display = 'block';
+          statusMsg.className = 'status error';
+          statusMsg.textContent = 'Waktu habis — token expired, siaran dihentikan otomatis.';
+        } else {
+          timerEl.textContent = fmt(remaining);
+        }
+      }, 250);
+    }
+  }
+}
+</script>
+</body>
+</html>
